@@ -25,26 +25,31 @@ import org.springframework.security.config.annotation.web.configuration.WebSecur
  * @author Joe Grandja
  */
 @EnableWebSecurity
-public class SecurityConfig extends WebSecurityConfigurerAdapter {
+public class WebSecurityConfig extends WebSecurityConfigurerAdapter {
 
-	// @formatter:off
-	@Override
-	protected void configure(HttpSecurity http) throws Exception {
-		http
-				.authorizeRequests()
-					.antMatchers("/css/**", "/index").permitAll()
-					.antMatchers("/user/**").hasRole("USER")
-					.and()
-				.formLogin().loginPage("/login").failureUrl("/login-error");
-	}
-	// @formatter:on
+    @Override
+    protected void configure(HttpSecurity http) throws Exception {
+        http
+                .authorizeRequests()
+                .antMatchers("/", "/home").permitAll()
+                .anyRequest().authenticated()
 
-	// @formatter:off
-	@Autowired
-	public void configureGlobal(AuthenticationManagerBuilder auth) throws Exception {
-		auth
-			.inMemoryAuthentication()
-				.withUser("user").password("password").roles("USER");
-	}
-	// @formatter:on
+                .and()
+
+                .formLogin()
+                .loginPage("/login")
+                .permitAll()
+
+                .and()
+
+                .logout()
+                .permitAll();
+    }
+
+    @Autowired
+    public void configureGlobal(AuthenticationManagerBuilder auth) throws Exception {
+        auth
+                .inMemoryAuthentication()
+                .withUser("user").password("password").roles("USER");
+    }
 }
