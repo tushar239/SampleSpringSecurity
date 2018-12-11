@@ -1,8 +1,12 @@
 Spring Security:
 ----------------
 
-From:
+Authentication From:
+https://docs.spring.io/spring-security/site/docs/current/reference/html/
+
+Authorization From:
 https://docs.spring.io/spring-security/site/docs/current/reference/html/authorization.html
+
 and
 Spring In Action 4.0
 and
@@ -44,27 +48,11 @@ public class SecurityConfig extends WebSecurityConfigurerAdapter {
 @EnableWebMvcSecurity annotation configures a Spring MVC argument resolver so that handler methods can receive the authenticated user’s principal (or username) via @AuthenticationPrincipal annotated parameters.
 
 
-// Spring Security provides an around advice for method invocations as well as web requests.
-
-// AbstractSecurityInterceptor:
-// It is an interceptor that is responsible for authentication and authorization.
-// It has different implementation for different types of objects (things that you want to secure).
-// To secure method invocation, it uses MethodSecurityInterceptor. To secure Filter Chain invocation, it uses FilterSecurityInterceptor.
 
 
-// Spring Security doesn’t mind how you put the Authentication object inside the SecurityContextHolder. The only critical requirement is that the SecurityContextHolder contains an Authentication which has a principal(user) before the AbstractSecurityInterceptor needs to authorize a user operation.
-// You can totally avoid authentication part by putting Authenticaiton object in SecurityContextHolder with isAuthenticated set to true.
+ ********************************* Authentication and Authorization *********************************
+ ----------------------------------------------------------------------------------------------------
 
-/*
-	ExceptionTranslationFilter:
-	It is a Spring Security filter that has responsibility for detecting any Spring Security exceptions that are thrown.
-	Such exceptions will generally be thrown by an AbstractSecurityInterceptor.
- */
-
-
-/*
-
- Authentication:
  principal can be a UserDetails object or a string. UserDetails is just more information about the user (principal)
  AuthenticationManager authenticates username and password and then returns fully populated Authentication object that has all information about the user(principal) including his/her authorities(roles)). Authentication object has list of GrantedAuthority.
  One of the GrantedAuthority implementation is SimpleGrantedAuthority. This allows any user-specified String to be converted into a GrantedAuthority
@@ -82,133 +70,158 @@ Consider a typical web application’s authentication process:
 	-	Next the server will decide whether or not the presented credentials are valid. If they’re valid, the next step will happen. If they’re invalid, usually your browser will be asked to try again (so you return to step two above).
 	-	The original request that you made to cause the authentication process will be retried. Hopefully you’ve authenticated with sufficient granted authorities to access the protected resource. If you have sufficient access, the request will be successful. Otherwise, you’ll receive back an HTTP error code 403, which means "forbidden".
 
-Spring Security has distinct classes responsible for most of the steps described above.
-The main participants (in the order that they are used) are the ExceptionTranslationFilter, an AuthenticationEntryPoint and an "authentication mechanism", which is responsible for calling the AuthenticationManager.
-*/
+Spring Security is a chain of filters
+    https://www.logicbig.com/tutorials/spring-framework/spring-security/spring-security-components-and-configuration.html
 
-/*
-	AuthenticationEntryPoint:
-	It is responsible for step three in the above list. As you can imagine, each web application will have a default authentication strategy
+    As you know, DelegatingFilterProxy delegates filtering to FilterChainProxy and then FilterChainProxy delegates filtering to chain of Spring-Managed Filter beans.
+        - WebAsyncManagerIntegrationFilter
+        - SecurityContextPersistenceFilter
+        - HeaderWriterFilter
+        - CsrfFilter
+        - LogoutFilter
+        - UserNamePasswordAuthenticationFilter
+        - DefaultLoginPageGeneratingFilter
+        - BasicAuthenticationFilter
+        - RequestCacheAwareFilter
+        - SecurityContextHolderAwareRequestFilter
+        - AnonymousAuthenticationFilter
+        - SessionManagementFilter
+        - ExceptionTranslationFilter
+        - FilterSecurityInterceptor
 
-		BasicAuthenticationEntryPoint
-		CasAuthenticationEntryPoint (Central Authentication System)
-		LoginUrlAuthenticationEntryPoint (Form based authentication system)
-*/
+    Every single request goes through these list of filters.
 
-/*
-	Storing the SecurityContext between requests:
+    Let's understand a few of these important filters.
 
-	In a typical web application, a user logs in once and is subsequently identified by their session Id. The server caches the principal information for the duration session. In Spring Security, the responsibility for storing the SecurityContext between requests falls to the SecurityContextPersistenceFilter, which by default stores the context as an HttpSession attribute between HTTP requests. It restores the context to the SecurityContextHolder for each request and, crucially, clears the SecurityContextHolder when the request completes. You shouldn’t interact directly with the HttpSession for security purposes. There is simply no justification for doing so - always use the SecurityContextHolder instead.
+        UserNamePasswordAuthenticationFilter:
+            It collects username and password from login form and calls AuthenticationManager to authenticate the user.
+            Then it puts Authenticated user object called 'Authentication' inside SecurityContextHolder "SecurityContextHolder.getContext().setAuthentication(authResult)". That can be used later for authorization. This Authentication object will have everything about user (name, password, roles etc.)
+            AuthenticationManager uses ProviderManager and ProviderManager uses Collection of AuthenticationProviders that you configure. AuthenticationProvider uses UserDetailService to fetch user information from various sources (in-memory, jdbc, Cas etc.). They are described more in detail later in this document.
 
-*/
+        BasicAuthenticationFilter
+            If Request object has header 'Authorization = Basic <Base64 encoded username>:<Base64 encoded password>', then it decodes username and password using Base64 and does authentication similar to UserNamePasswordAuthenticationFilter.
 
-/*
-	AuthenticationManager, ProviderManager, AuthenticationProvider:
+        ExceptionTranslationFilter
+            It simply calls next filter in a chain. If that filter throws AuthorizationException, then initiates Authentication using AuthenticationEntryPoint.
+            AuthenticationEntryPoint is configured in your own WebSecurityConfigurer using 'configure(HttpSecurity)' inside httpSecurity object.
+            Examples of these AuthenticationEntryPoint can be BasicAuthenticationEntryPoint.
 
-	AuthenticationManager authenticates username and password and then returns fully populated Authentication object.
-	It is just an interface.
-	It's concrete implementation is ProviderManager.
-	This ProviderManager, rather than handling the authentication request itself, it delegates to a list of configured AuthenticationProviders, each of which is queried in turn to see if it can perform the authentication.
+        FilterSecurityInterceptor (extends AbstractSecurityInterceptor)
+            This is a last Filter in chain. It extends AbstractSecurityInterceptor, which is responsible for the AUTHORIZATION.
+            FilterSecurityInterceptor uses url based authorization. Whatever urls and allowed roles are configured in your own WebSecurityConfigurer using 'configure(HttpSecurity)', those urls and allowed roles will be provided to this interceptor using FilterInvocationSecurityMetadataSource.
+            This interceptor will check whether Authentication object is already there inside SecurityContextHolder or not.
+            This Authentication object could have been put using any of the above mentioned filters or your custom filter that could do custom things to create Authentication object e.g. in CDK company, if request has header REMOTE_USER, a custom filter simply creates Authentication object with isAuthenticated=true and puts it in SecurityContextHolder.
+            If Authentication object is not present in SecurityContextHolder, then it authenticates the user using AuthenticationManager first and puts Authentication object with isAuthentication=true in SecurityContextHolder.
+            Then it performs Authorization using AccessDecisionManager.
 
-	AuthenticationProvider provides fully populated Authentication object. It calls UserDetailsService to retrieve user information and perform the authentication.
+        NOTE: MethodSecurityInterceptor is not a Filter.
+              There is another implementation of AbstractSecurityInterceptor and that is MethodSecurityInterceptor. It is not a Filter.
+              It is a AOP based (JDK Dynamic Proxy based) security interceptor. It creates a proxy around your Controller and intercepts the endpoints in it.
+              Unlike to FilterSecurityInterceptor's url based pattern, it uses annotations of methods like @Secured, @PreAuthorize, @PostAuthorize, @RolesAllowed etc.
+              Using these annotations, MethodSecurityMetadataSource is created and fed to MethodSecurityInterceptor.
 
-	<bean id="authenticationManager"
-			class="org.springframework.security.authentication.ProviderManager">
-		<constructor-arg>
-			<list>
-				<ref local="daoAuthenticationProvider"/>
-				<ref local="anonymousAuthenticationProvider"/>
-				<ref local="ldapAuthenticationProvider"/>
-			</list>
-		</constructor-arg>
-	</bean>
+              https://springbootdev.com/2017/08/30/difference-between-secured-rolesallowed-and-preauthorizepostauthorize/
 
-
-	DaoAuthenticationProvider uses UserDetailsService to load user information.
-	JaasAuthenticationProvider uses JAAS.
-	CasAuthenticationProvider uses Cas.
-
-	<bean id="daoAuthenticationProvider" class="org.springframework.security.authentication.dao.DaoAuthenticationProvider">
-		<property name="userDetailsService" ref="inMemoryDaoImpl"/>
-		<property name="passwordEncoder" ref="passwordEncoder"/>
-	</bean>
-
-	<user-service id="inMemoryDaoImpl">
-		<!-- Password is prefixed with {noop} to indicate to DelegatingPasswordEncoder that
-		NoOpPasswordEncoder should be used. This is not safe for production, but makes reading
-		in samples easier. Normally passwords should be hashed using BCrypt -->
-
-		<user name="jimi" password="{noop}jimispassword" authorities="ROLE_USER, ROLE_ADMIN" />
-		<user name="bob" password="{noop}bobspassword" authorities="ROLE_USER" />
-	</user-service>
-	or
-	<user-service id="inMemoryDaoImpl" properties="users.properties"/>
-	The properties file should contain entries in the form
-
-	username=password,grantedAuthority[,grantedAuthority][,enabled|disabled]
-
-	For example
-
-	jimi=jimispassword,ROLE_USER,ROLE_ADMIN,enabled
-	bob=bobspassword,ROLE_USER,enabled
+        @EnableWebSecurity enables normal filter based spring security. You need your own WebSecurityConfigurer or you need to configure related spring beans as described later in this document.
+        @EnableGlobalMethodSecurity enables Method level security.
 
 
-	UserDetailsService based on external database:
-
-	<bean id="dataSource" class="org.springframework.jdbc.datasource.DriverManagerDataSource">
-		<property name="driverClassName" value="org.hsqldb.jdbcDriver"/>
-		<property name="url" value="jdbc:hsqldb:hsql://localhost:9001"/>
-		<property name="username" value="sa"/>
-		<property name="password" value=""/>
-	</bean>
-
-	<bean id="userDetailsService"
-		class="org.springframework.security.core.userdetails.jdbc.JdbcDaoImpl">
-		<property name="dataSource" ref="dataSource"/>
-	</bean>
+                                        AbstractSecurityInterceptor
+                                                |
+                                                |   Uses    AuthenticationManager for Authenticating the user, if it is not already authenticated (SecurityContextHolder doesn't have Authentication(user/principal) object with isAuthenticated=true
+                                                |           AccessDecisionManager for authorization.
+                                                |
+                    --------------------------------------------------------------
+                    |                                                            |
+            FilterSecurityInterceptor implements Filter              MethodSecurityInterceptor implements MethodInterceptor
 
 
-*/
+What is Configuration Attributes?
+    They may be simple role names or have more complex meaning, depending on the how sophisticated the AccessDecisionManager implementation is.
+    The AbstractSecurityInterceptor is configured with a SecurityMetadataSource which it uses to look up the attributes for a secure object either from HttpSecurity object or method level annotations as described above.
 
-/*
-	Authorization:
+AuthenticationManager, ProviderManager, AuthenticationProvider:
 
-	AbstractSecurityInterceptor provides a consistent workflow for handling secure object requests, typically:
+    AuthenticationManager authenticates username and password and then returns fully populated Authentication object.
+    It is just an interface.
+    It's concrete implementation is ProviderManager.
+    This ProviderManager, rather than handling the authentication request itself, it delegates to a list of configured AuthenticationProviders, each of which is queried in turn to see if it can perform the authentication.
 
-		- Look up the "configuration attributes" associated with the present request
-		- Submitting the secure object, current Authentication and configuration attributes to the AccessDecisionManager for an authorization decision
-		- Optionally change the Authentication under which the invocation takes place
-		- Allow the secure object invocation to proceed (assuming access was granted)
-		- Call the AfterInvocationManager if configured, once the invocation has returned. If the invocation raised an exception, the AfterInvocationManager will not be invoked.
+    AuthenticationProvider provides fully populated Authentication object. It calls UserDetailsService to retrieve user information and perform the authentication.
 
-	What is Configuration Attributes?
-	They may be simple role names or have more complex meaning, depending on the how sophisticated the AccessDecisionManager implementation is.
-	The AbstractSecurityInterceptor is configured with a SecurityMetadataSource which it uses to look up the attributes for a secure object.
-	e.g. PrePostAnnotationSecurityMetadataSource --- it reads annotations like @PreFilter, @PostFilter, @PreAuthorize, @PostAuthorize and sets their values as List<ConfigAttribute>
-*/
+    <bean id="authenticationManager"
+            class="org.springframework.security.authentication.ProviderManager">
+        <constructor-arg>
+            <list>
+                <ref local="daoAuthenticationProvider"/>
+                <ref local="anonymousAuthenticationProvider"/>
+                <ref local="ldapAuthenticationProvider"/>
+            </list>
+        </constructor-arg>
+    </bean>
 
 
-/*
+    DaoAuthenticationProvider uses UserDetailsService to load user information.
+    JaasAuthenticationProvider uses JAAS.
+    CasAuthenticationProvider uses Cas.
 
-	Spring 3.0 onwards
+    <bean id="daoAuthenticationProvider" class="org.springframework.security.authentication.dao.DaoAuthenticationProvider">
+        <property name="userDetailsService" ref="inMemoryDaoImpl"/>
+        <property name="passwordEncoder" ref="passwordEncoder"/>
+    </bean>
 
-	@EnableWebSecurity vs @EnableGlobalMethodSecurity:
+    <user-service id="inMemoryDaoImpl">
+        <!-- Password is prefixed with {noop} to indicate to DelegatingPasswordEncoder that
+        NoOpPasswordEncoder should be used. This is not safe for production, but makes reading
+        in samples easier. Normally passwords should be hashed using BCrypt -->
 
-	- EnableWebSecurity will provide configuration via HttpSecurity providing the configuration you could find with <http></http> tag in xml configuration, it's allow you to configure your access based on urls patterns, the authentication endpoints, handlers etc...
-	You need have a subclass of WebSecurityConfigurer or WebSecurityConfigurerAdapter.
-	You can override "protected void configure(HttpSecurity http)" to define your url patterns.
+        <user name="jimi" password="{noop}jimispassword" authorities="ROLE_USER, ROLE_ADMIN" />
+        <user name="bob" password="{noop}bobspassword" authorities="ROLE_USER" />
+    </user-service>
+    or
+    <user-service id="inMemoryDaoImpl" properties="users.properties"/>
+    The properties file should contain entries in the form
 
-	configure(WebSecurity)	- Override to configure Spring Security’s filter chain.
-	configure(HttpSecurity) - Override to configure how requests are secured by interceptors.
-	configure(AuthenticationManagerBuilder) - Override to configure user-details services.
+    username=password,grantedAuthority[,grantedAuthority][,enabled|disabled]
 
-	- EnableGlobalMethodSecurity provides AOP security on methods, some of annotation it will enable are PreAuthorize PostAuthorize also it has support for JSR-250.
+    For example
 
-	@EnableWebMvcSecurity
+    jimi=jimispassword,ROLE_USER,ROLE_ADMIN,enabled
+    bob=bobspassword,ROLE_USER,enabled
+
+
+    UserDetailsService based on external database:
+
+    <bean id="dataSource" class="org.springframework.jdbc.datasource.DriverManagerDataSource">
+        <property name="driverClassName" value="org.hsqldb.jdbcDriver"/>
+        <property name="url" value="jdbc:hsqldb:hsql://localhost:9001"/>
+        <property name="username" value="sa"/>
+        <property name="password" value=""/>
+    </bean>
+
+    <bean id="userDetailsService"
+        class="org.springframework.security.core.userdetails.jdbc.JdbcDaoImpl">
+        <property name="dataSource" ref="dataSource"/>
+    </bean>
+
+
+Storing the SecurityContext between requests:
+
+    In a typical web application, a user logs in once and is subsequently identified by their session Id. The server caches the principal information for the duration session.
+    In Spring Security, the responsibility for storing the SecurityContext between requests falls to the SecurityContextPersistenceFilter, which by default stores the context as an HttpSession attribute between HTTP requests. It restores the context to the SecurityContextHolder for each request and, crucially, clears the SecurityContextHolder when the request completes. You shouldn’t interact directly with the HttpSession for security purposes. There is simply no justification for doing so - always use the SecurityContextHolder instead.
+
+
+@EnableWebMvcSecurity
 
 	This annotation configures a Spring MVC argument resolver so that handler methods can receive the authenticated user’s principal (or username) via @AuthenticationPrincipal-annotated parameters.
 
+WebSecurityConfigurer
 
+        It has following methods
+
+        configure(WebSecurity)	- Override to configure Spring Security’s filter chain.
+        configure(HttpSecurity) - Override to configure how requests are secured by interceptors.
+        configure(AuthenticationManagerBuilder) - Override to configure user-details services.
 
 	public class MyWebSecurityConfigurerAdapter extends WebSecurityConfigurerAdapter {
 
@@ -285,4 +298,4 @@ The main participants (in the order that they are used) are the ExceptionTransla
 			//auth.ldapAuthentication();
 
 		}
- */
+
