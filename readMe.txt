@@ -9,6 +9,41 @@ and
 https://spring.io/guides/topicals/spring-security-architecture/
 
 
+DelegatingFilterProxy, FilterChainProxy (from Spring In Action 4.0)
+----------------------------------------
+DelegatingFilterProxy is a special servlet filter that, by itself, doesn’t do much. Instead, it delegates to an implementation of javax.servlet.Filter that’s registered as a <bean> in the Spring application context
+
+If you like configuring servlets and filters in the traditional web.xml file, you can do that with the <filter> element, like this:
+<filter>
+    <filter-name>springSecurityFilterChain</filter-name>
+    <filter-class>
+        org.springframework.web.filter.DelegatingFilterProxy
+    </filter-class>
+</filter>
+
+The most important thing here is that the <filter-name> be set to springSecurityFilterChain.
+
+
+If you'd rather configure DelegatingFilterProxy in Java with a WebApplicationInitializer, then all you need to do is create a new class that extends AbstractSecurityWebApplicationInitializer:
+
+import org.springframework.security.web.context.AbstractSecurityWebApplicationInitializer;
+
+public class SecurityWebInitializer extends AbstractSecurityWebApplicationInitializer {}
+
+Whether you configure DelegatingFilterProxy in web.xml or by subclassing AbstractSecurityWebApplicationInitializer, it will intercept requests coming into the application and delegate them to a bean whose ID is springSecurityFilterChain.
+As for the springSecurityFilterChain bean itself, it’s another special filter known as FilterChainProxy. It’s a single filter that chains together one or more addi- tional filters. Spring Security relies on several servlet filters to provide different security features
+
+
+Let’s create the simplest possible securit configuration.
+
+@Configuration
+@EnableWebMvcSecurity
+public class SecurityConfig extends WebSecurityConfigurerAdapter {
+}
+
+@EnableWebMvcSecurity annotation configures a Spring MVC argument resolver so that handler methods can receive the authenticated user’s principal (or username) via @AuthenticationPrincipal annotated parameters.
+
+
 // Spring Security provides an around advice for method invocations as well as web requests.
 
 // AbstractSecurityInterceptor:
