@@ -29,9 +29,23 @@ public class WebSecurityConfig extends WebSecurityConfigurerAdapter {
 
     @Override
     protected void configure(HttpSecurity http) throws Exception {
-        http
+       /*   try this to make sure that your understanding is correct
+
+       http.antMatcher("/**") // authenticate all requests
                 .authorizeRequests()
-                .antMatchers("/", "/home").permitAll()
+                .antMatchers("/home").hasAnyAuthority("ROLE_HOME_ACCESS")
+                .and()
+                .formLogin()
+                .loginPage("/login")
+                .and()
+                .httpBasic();*/
+
+
+        http
+                //.addFilter(filter)// try this by adding user as preauthenticated in SecurityContextHolder.
+                .authorizeRequests()
+                .antMatchers("/", "/home")
+                .permitAll()
                 .anyRequest().authenticated()
 
                 .and()

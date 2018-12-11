@@ -5,6 +5,8 @@ From:
 https://docs.spring.io/spring-security/site/docs/current/reference/html/authorization.html
 and
 Spring In Action 4.0
+and
+https://spring.io/guides/topicals/spring-security-architecture/
 
 
 // Spring Security provides an around advice for method invocations as well as web requests.
@@ -179,6 +181,22 @@ The main participants (in the order that they are used) are the ExceptionTransla
 		protected void configure(HttpSecurity http) throws Exception {
 			/*
 			// This says all urls are secured. That means they all should be authenticated. And any authenticated user with any role can access these urls. If authentication fails, use form login and basic authentication.
+			// This is same as
+			// http.antMatchers("/**") ---- authenticate all requests
+			//     .authorizeRequests() --- authorize all authenticated users for all urls
+			//     .antMatchers("/**")
+			//     .authenticated()
+			//	   .and()
+			//	   .formLogin()
+			//	   .and()
+			//     .httpBasic();
+
+			// As per https://spring.io/guides/topicals/spring-security-architecture/
+			// each url pattern has its own filter chain.
+			// So either you can configure the url patterns as shown below or add your own filter using http.addFilter(filter).
+            // this filter can either url matching or any business logic like by looking at HttpRequest's header information, set Authentication(User) object inside SecurityContextHolder with isAuthenticated=true, so that that user acts like a pre-authenticated user and it won't be authenticated again.
+
+
 			http
 					.authorizeRequests()
 					.antMatchers("/**")
