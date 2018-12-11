@@ -242,7 +242,7 @@ The main participants (in the order that they are used) are the ExceptionTransla
 					.httpBasic();
 
 			*/
-			// This says that all urls with pattern "**/rest/v1.0/*" (it includes search url also) are secured.
+			// This says that all urls are secured (like http.antMatchers("/**"))
 			// That means all urls with pattern "**/rest/v1.0/*" should be authenticated.
 			// When you use /rest/v1.0/search url, after authentication, user with authority=ROLE_SEARCH (same as role=SEARCH) should be able to access it.
 			// When you use any other url (e.g. /rest/v1.0/create), after authentication, user with authority=ROLE_REST_ALL (same as role=REST_ALL) should be able to access it.
@@ -256,7 +256,7 @@ The main participants (in the order that they are used) are the ExceptionTransla
 
 			http
 					.authorizeRequests()
-					.antMatchers("**/rest/v1.0/search/*")
+					.antMatchers("**/rest/v1.0/search/*") //--- instead of this kind of configuration, you can use @PreAuthorize('hasAnyAuthority("ROLE_SEARCH")) annotation on top of your 'search' endpoint.
 					.hasAnyAuthority("ROLE_SEARCH")
 					.antMatchers("**/rest/v1.0/*")
 					.hasAnyRole("REST_ALL") // is same as .hasAnyAuthority("ROLE_REST_ALL")
