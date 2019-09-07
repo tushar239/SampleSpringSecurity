@@ -106,15 +106,65 @@ Spring Security is a chain of filters
             AuthenticationEntryPoint is configured in your own WebSecurityConfigurer using 'configure(HttpSecurity)' inside httpSecurity object.
             Examples of these AuthenticationEntryPoint can be BasicAuthenticationEntryPoint.
 
-        FilterSecurityInterceptor (extends AbstractSecurityInterceptor)
+        FilterSecurityInterceptor (extends AbstractSecurityInterceptor) ---- VERY IMPORTANT
             This is a last Filter in chain. It extends AbstractSecurityInterceptor, which is responsible for the AUTHORIZATION.
             FilterSecurityInterceptor uses url based authorization. Whatever urls and allowed roles are configured in your own WebSecurityConfigurer using 'configure(HttpSecurity)', those urls and allowed roles will be provided to this interceptor using FilterInvocationSecurityMetadataSource.
             This interceptor will check whether Authentication object is already there inside SecurityContextHolder or not.
-            This Authentication object could have been put using any of the above mentioned filters or your custom filter that could do custom things to create Authentication object e.g. in CDK company, if request has header REMOTE_USER, a custom filter simply creates Authentication object with isAuthenticated=true and puts it in SecurityContextHolder.
+            Authentication object could have been put using any of the above mentioned filters or your custom filter that could do custom things to create Authentication object e.g. in CDK company, if request has header REMOTE_USER, a custom filter simply creates Authentication object with isAuthenticated=true and puts it in SecurityContextHolder.
             If Authentication object is not present in SecurityContextHolder, then it authenticates the user using AuthenticationManager first and puts Authentication object with isAuthentication=true in SecurityContextHolder.
             Then it performs Authorization using AccessDecisionManager.
 
-        NOTE: MethodSecurityInterceptor is not a Filter.
+            code inside this interceptor:
+
+            InterceptorStatusToken token = super.beforeInvocation(fi);
+
+                                                  - checks whether Authentication object exists with isAuthenticated=true in SecurityContextHolder. If not, then do authenticationManager.authenticate(authentication).
+
+                                                  - Collection<ConfigAttribute> attributes = this.obtainSecurityMetadataSource().getAttributes(object);
+                                                    SecurityMetadataSource contains all the information that you have configured using your WebSecurityConfigurer's configure(HttpSecurity) method.
+                                                    It contains all urls, related roles that can access them etc.
+                                                    There are few types of ConfigAttribute. Basically it contains the security information that you have attached with urls(like Role).
+
+                                                  - Perform Authorization before rest endpoint is called
+                                                    try {
+                                                        accessDecisionManager.decide(authenticated Authentication object, object that needs to be invoked, configAttributes);
+                                                    } catch (AccessDeniedException accessDeniedException) {
+                                                            publishEvent(new AuthorizationFailureEvent(object, attributes, authenticated, accessDeniedException));
+                                                            throw accessDeniedException;
+                                                    }
+
+                                                    if(publish on successful authorization is set to true) {
+                                                        publishEvent(new AuthorizedEvent(object, attributes, authenticated));
+                                                    }
+
+                                                  - Authentication runAs = this.runAsManager.buildRunAs(authenticated, object,attributes);
+                                                    Replace current Authentication object in SecurityContextHolder with this new 'runAs' Authentication object.
+
+
+
+
+            try {
+				fi.getChain().doFilter(fi.getRequest(), fi.getResponse()); --- FilterSecurityInterceptor is the last filter in chain. So, no more filters are remained. So, rest endpoint will be called at this point.
+			}
+			finally {
+				super.finallyInvocation(token);
+			}
+
+			super.afterInvocation(token, null);
+
+                                                    - Perform Authorization after rest endpoint is called. You can configure this kind of authorization also.
+                                                      If Authorization is successful, returned object can be manipulated by Collection<AfterInvocationProvider> called by AfterInvocationManager.
+                                                    try {
+                                                        returnedObject = afterInvocationManager.decide(token.getSecurityContext().getAuthentication(), token.getSecureObject(), token.getAttributes(), returnedObject);
+                                                    }
+                                                    catch (AccessDeniedException accessDeniedException) {
+                                                        publishEvent(authorizationFailureEvent);
+                                                        throw accessDeniedException;
+                                                    }
+
+
+
+        NOTE: MethodSecurityInterceptor is not a Filter. It is a standard AOP based interceptor.
               There is another implementation of AbstractSecurityInterceptor and that is MethodSecurityInterceptor. It is not a Filter.
               It is a AOP based (JDK Dynamic Proxy based) security interceptor. It creates a proxy around your Controller and intercepts the endpoints in it.
               Unlike to FilterSecurityInterceptor's url based pattern, it uses annotations of methods like @Secured, @PreAuthorize, @PostAuthorize, @RolesAllowed etc.
@@ -135,10 +185,51 @@ Spring Security is a chain of filters
                     |                                                            |
             FilterSecurityInterceptor implements Filter              MethodSecurityInterceptor implements MethodInterceptor
 
+        Why are they called interceptors?
+            Interceptor normally means Around advice. Around advice has a capability can elect whether or not to proceed with a method invocation, whether or not to modify the response, and whether or not to throw an exception.
+            Spring Security provides an around advice for method invocations (using MethodSecurityInterceptor) as well as web requests (using FilterSecurityInterceptor).
 
-What is Configuration Attributes?
+        To secure
+            - rest endpoints of your app, use Spring Security's interceptors.
+            - service layer methods, use standard Spring AOP or AspectJ
+            - domain objects, use AspectJ
+
+What is a "secure object" anyway?
+    Spring Security uses the term to refer to any object that can have security (such as an authorization decision) applied to it.
+
+What is SecurityMetadataSource?
+
+        SecurityMetadataSource contains information about the configuration that you do in your WebSecurityConfigurer's configure(HttpSecurity) method.
+        This information is used by FilterSecurityInterceptor or MethodSecurityInterceptor as described above in this document.
+
+
+                                                        SecurityMetadataSource
+                                                                |
+                                -------------------------------------------------------------------------------------
+                                |                                                                                   |
+                    FilterInvocationSecurityMetadataSource                                                 MethodSecurityMetadataSource
+                                |                                                                                   |
+----------------------------------------------------------------                                          -------------------------------------------------------------------------------------------------------------------------------
+|                                                              |                                          |                                             |                                           |                                   |
+DefaultFilterInvocationSecurityMetadataSource  ExpressionBasedFilterInvocationSecurityMetadataSource     SecuredAnnotationSecurityMetadataSource      PrePostAnnotationSecurityMetadataSource    Jsr250MethodSecurityMetadataSource   ......
+
+
+What is Configuration Attribute?
+
     They may be simple role names or have more complex meaning, depending on the how sophisticated the AccessDecisionManager implementation is.
     The AbstractSecurityInterceptor is configured with a SecurityMetadataSource which it uses to look up the attributes for a secure object either from HttpSecurity object or method level annotations as described above.
+
+                                        ConfigAttribute
+                                            |
+    -----------------------------------------------------------------------------------------------------------------------------------------------------
+    |                                               |                               |                                   |                               |
+WebExpressionConfigAttribute                PreInvocationExpressionAttribute     PostInvocationExpressionAttribute   SecurityConfig                 Jsr250SecurityConfig
+Used by                                     Used by                              Used by                             Used by                        Used by
+FilterInvocationSecurityMetadataSource      MethodSecurityMetadataSource         MethodSecurityMetadataSource        MethodSecurityMetadataSource   MethodSecurityMetadataSource
+
+What is Run-As?
+    https://www.baeldung.com/spring-security-run-as-auth
+
 
 AuthenticationManager, ProviderManager, AuthenticationProvider:
 
@@ -203,6 +294,25 @@ AuthenticationManager, ProviderManager, AuthenticationProvider:
         class="org.springframework.security.core.userdetails.jdbc.JdbcDaoImpl">
         <property name="dataSource" ref="dataSource"/>
     </bean>
+
+
+AccessDecisionManager
+
+    I already explained how AccessDecisionManager work above in this document.
+
+                                                      AccessDecisionManager
+                                                                |
+                        -----------------------------------------------------------------------------
+                        |                                       |                                   |
+            AffirmativeBased                                ConsensusBased                  UnanimousBased
+
+            Iterates through DecisionVoters
+                                 |
+-----------------------------------------------------------------------------------------------------------------------------------------
+|                                                                                           |                      |                    |
+RoleVoter                                                                           RoleHierarchyVoter          WebExpressionVoter    .....
+extracts Authorities (GrantedAuthority) from Authentication object stored
+in SecurityContextHolder and compares them with Role related ConfigAttribute
 
 
 Storing the SecurityContext between requests:
